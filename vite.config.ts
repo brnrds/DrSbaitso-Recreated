@@ -56,6 +56,13 @@ function devApiPlugin(env: Record<string, string>): Plugin {
         'GEMINI_TTS_MODEL',
         'GEMINI_CHAT_FALLBACK_MODELS',
         'GEMINI_TTS_FALLBACK_MODELS',
+        'CHAT_BACKEND',
+        'CHAT_HARNESS_MODEL',
+        'CHAT_HARNESS_FALLBACK_MODELS',
+        'AI_GATEWAY_API_KEY',
+        'VERCEL_OIDC_TOKEN',
+        'OPENAI_API_KEY',
+        'ANTHROPIC_API_KEY',
       ]) {
         if (env[key] !== undefined && process.env[key] === undefined) process.env[key] = env[key];
       }

@@ -10,6 +10,20 @@ import {
   LIMITS,
   type GeminiClient,
 } from '../../api/_lib/gemini';
+import { createGeminiChatClient, type ChatClient } from '../../api/_lib/chatClient';
+
+function makeChatClient(impl: (req: any) => any): { client: ChatClient; calls: any[] } {
+  const calls: any[] = [];
+  const gemini: GeminiClient = {
+    models: {
+      generateContent: vi.fn(async (req: any) => {
+        calls.push(req);
+        return impl(req);
+      }),
+    },
+  };
+  return { client: createGeminiChatClient(gemini), calls };
+}
 
 function makeClient(impl: (req: any) => any): GeminiClient & { calls: any[] } {
   const calls: any[] = [];
@@ -49,15 +63,16 @@ const b64 = (u: Uint8Array) => Buffer.from(u).toString('base64');
 const MODELS = { chat: 'gemini-3.8-flash', tts: 'gemini-3.8-flash-tts' };
 
 describe('handleChat', () => {
-  let client: ReturnType<typeof makeClient>;
+  let client: ChatClient;
+  let calls: any[];
   beforeEach(() => {
-    client = makeClient(() => ({ text: 'TELL ME MORE ABOUT YOUR PROBLEMS.' }));
+    ({ client, calls } = makeChatClient(() => ({ text: 'TELL ME MORE ABOUT YOUR PROBLEMS.' })));
   });
 
   it('answers with the persona system instruction resolved on the server', async () => {
     const res = await handleChat({ characterId: 'sbaitso', message: 'hello' }, client, MODELS);
     expect(res).toEqual({ status: 200, body: { text: 'TELL ME MORE ABOUT YOUR PROBLEMS.' } });
-    const req = client.calls[0];
+    const req = calls[0];
     expect(req.model).toBe('gemini-3.8-flash');
     expect(req.config.systemInstruction).toContain('Dr. Sbaitso');
     expect(req.contents).toEqual([{ role: 'user', parts: [{ text: 'hello' }] }]);
@@ -76,7 +91,7 @@ describe('handleChat', () => {
       client,
       MODELS,
     );
-    expect(client.calls[0].contents.map((c: any) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(calls[0].contents.map((c: any) => c.role)).toEqual(['user', 'model', 'user']);
   });
 
   it('accepts a custom character instruction instead of an id', async () => {
@@ -86,7 +101,7 @@ describe('handleChat', () => {
       MODELS,
     );
     expect(res.status).toBe(200);
-    expect(client.calls[0].config.systemInstruction).toBe('You are Robo.');
+    expect(calls[0].config.systemInstruction).toBe('You are Robo.');
   });
 
   it.each([
@@ -106,7 +121,7 @@ describe('handleChat', () => {
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('BAD_REQUEST');
     expect(String(res.body.error).toLowerCase()).toContain(fragment.toLowerCase());
-    expect(client.calls).toHaveLength(0);
+    expect(calls).toHaveLength(0);
   });
 
   it('keeps only the most recent history turns', async () => {
@@ -115,20 +130,20 @@ describe('handleChat', () => {
       text: `t${i}`,
     }));
     await handleChat({ characterId: 'sbaitso', message: 'hi', history }, client, MODELS);
-    expect(client.calls[0].contents).toHaveLength(LIMITS.historyTurns + 1);
-    expect(client.calls[0].contents.at(-2).parts[0].text).toBe(`t${LIMITS.historyTurns + 9}`);
+    expect(calls[0].contents).toHaveLength(LIMITS.historyTurns + 1);
+    expect(calls[0].contents.at(-2).parts[0].text).toBe(`t${LIMITS.historyTurns + 9}`);
   });
 
   it('maps an empty model reply to a 502 instead of crashing', async () => {
-    client = makeClient(() => ({ text: undefined }));
+    ({ client, calls } = makeChatClient(() => ({ text: undefined })));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, MODELS);
     expect(res).toEqual({ status: 502, body: { code: 'EMPTY_RESPONSE', error: expect.any(String) } });
   });
 
   it('passes upstream rate limiting through as 429', async () => {
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       throw Object.assign(new Error('RESOURCE_EXHAUSTED: quota'), { status: 429 });
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, MODELS);
     expect(res.status).toBe(429);
     expect(res.body.code).toBe('RATE_LIMITED');
@@ -136,35 +151,35 @@ describe('handleChat', () => {
 
   it('falls back to the next model when the primary is overloaded (503)', async () => {
     let call = 0;
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       call += 1;
       if (call === 1) throw Object.assign(new Error('{"error":{"status":"UNAVAILABLE"}}'), { status: 503 });
       return { text: 'FALLBACK OK' };
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, {
       ...MODELS,
       chatFallbacks: ['gemini-3.7-flash'],
     });
     expect(res).toEqual({ status: 200, body: { text: 'FALLBACK OK' } });
-    expect(client.calls.map((c) => c.model)).toEqual(['gemini-3.8-flash', 'gemini-3.7-flash']);
+    expect(calls.map((c) => c.model)).toEqual(['gemini-3.8-flash', 'gemini-3.7-flash']);
   });
 
   it('reports UNAVAILABLE when every model is overloaded', async () => {
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       throw Object.assign(new Error('high demand'), { status: 503 });
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, {
       ...MODELS,
       chatFallbacks: ['b'],
     });
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('UNAVAILABLE');
-    expect(client.calls).toHaveLength(2);
+    expect(calls).toHaveLength(2);
   });
 
   it('bounds each attempt with a timeout and uses low thinking for chat', async () => {
     await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, MODELS);
-    const config = client.calls[0].config;
+    const config = calls[0].config;
     expect(config.httpOptions.timeout).toBeGreaterThan(0);
     expect(config.httpOptions.timeout).toBeLessThanOrEqual(LIMITS.attemptTimeoutMs);
     expect(config.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
@@ -172,12 +187,12 @@ describe('handleChat', () => {
 
   it('moves to the next model after a timeout', async () => {
     let call = 0;
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       call += 1;
       if (call === 1)
         throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
       return { text: 'OK' };
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, {
       ...MODELS,
       chatFallbacks: ['b'],
@@ -186,45 +201,45 @@ describe('handleChat', () => {
   });
 
   it('moves to the next model on a per-model quota error, and reports 429 if all are exhausted', async () => {
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       throw Object.assign(new Error('RESOURCE_EXHAUSTED'), { status: 429 });
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, {
       ...MODELS,
       chatFallbacks: ['b'],
     });
-    expect(client.calls).toHaveLength(2);
+    expect(calls).toHaveLength(2);
     expect(res.status).toBe(429);
     expect(res.body.code).toBe('RATE_LIMITED');
   });
 
   it('stops trying fallbacks once the overall deadline is spent', async () => {
     let now = 0;
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       now += LIMITS.totalBudgetMs; // the first attempt consumes the whole budget
       throw Object.assign(new Error('high demand'), { status: 503 });
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, {
       ...MODELS,
       chatFallbacks: ['b', 'c'],
       now: () => now,
     });
-    expect(client.calls).toHaveLength(1);
+    expect(calls).toHaveLength(1);
     expect(res.status).toBe(503);
   });
 
   it('does not try fallbacks for errors a retry cannot fix', async () => {
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       throw Object.assign(new Error('bad'), { status: 400 });
-    });
+    }));
     await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, { ...MODELS, chatFallbacks: ['b'] });
-    expect(client.calls).toHaveLength(1);
+    expect(calls).toHaveLength(1);
   });
 
   it('hides other upstream failures behind a generic 502', async () => {
-    client = makeClient(() => {
+    ({ client, calls } = makeChatClient(() => {
       throw Object.assign(new Error('internal details with secrets'), { status: 500 });
-    });
+    }));
     const res = await handleChat({ characterId: 'sbaitso', message: 'hi' }, client, MODELS);
     expect(res.status).toBe(502);
     expect(res.body.code).toBe('UPSTREAM_ERROR');

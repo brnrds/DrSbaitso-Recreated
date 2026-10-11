@@ -11,11 +11,20 @@ import {
   createRateLimiter,
   fail,
   type ApiResult,
+  type ChatModels,
   type GeminiClient,
   type Models,
 } from './gemini.js';
+import { createGeminiChatClient, type ChatClient } from './chatClient.js';
+import {
+  harnessChatModels,
+  isChatConfigured,
+  resolveChatBackend,
+} from './chatBackend.js';
+import { createHarnessChatClient } from './harnessChat.js';
 
-export type Handler = (body: unknown, client: GeminiClient, models: Models) => Promise<ApiResult>;
+export type TtsHandler = (body: unknown, client: GeminiClient, models: Models) => Promise<ApiResult>;
+export type ChatHandler = (body: unknown, client: ChatClient, models: ChatModels) => Promise<ApiResult>;
 
 interface Limiter {
   check(key: string): boolean;
@@ -94,37 +103,92 @@ export function clientKey(request: Request): string {
   return request.headers.get('x-real-ip')?.trim() || 'unknown';
 }
 
-export async function serve(request: Request, handler: Handler, options: ServeOptions = {}): Promise<Response> {
-  const env = options.env ?? process.env;
-  const limiter = options.limiter ?? defaultLimiter;
-
+async function readJsonBody(request: Request, limiter: Limiter, env: Record<string, string | undefined>) {
   if (request.method !== 'POST') {
-    return json(fail(405, 'METHOD_NOT_ALLOWED', 'Use POST.'), { allow: 'POST' });
-  }
-
-  const apiKey = env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return json(fail(503, 'NOT_CONFIGURED', 'The server has no Gemini API key configured.'));
+    return { error: json(fail(405, 'METHOD_NOT_ALLOWED', 'Use POST.'), { allow: 'POST' }) };
   }
 
   if (!limiter.check(clientKey(request))) {
-    return json(fail(429, 'RATE_LIMITED', 'Too many requests. Slow down.'), { 'retry-after': '60' });
+    return { error: json(fail(429, 'RATE_LIMITED', 'Too many requests. Slow down.'), { 'retry-after': '60' }) };
   }
 
   const declared = Number(request.headers.get('content-length'));
   if (declared > LIMITS.bodyBytes) {
-    return json(fail(413, 'PAYLOAD_TOO_LARGE', 'Request body too large.'));
+    return { error: json(fail(413, 'PAYLOAD_TOO_LARGE', 'Request body too large.')) };
   }
   const raw = await readCapped(request, LIMITS.bodyBytes);
   if (raw === null) {
-    return json(fail(413, 'PAYLOAD_TOO_LARGE', 'Request body too large.'));
+    return { error: json(fail(413, 'PAYLOAD_TOO_LARGE', 'Request body too large.')) };
   }
 
   let body: unknown;
   try {
     body = JSON.parse(raw);
   } catch {
-    return json(fail(400, 'BAD_REQUEST', 'Request body must be valid JSON.'));
+    return { error: json(fail(400, 'BAD_REQUEST', 'Request body must be valid JSON.')) };
+  }
+
+  return { body };
+}
+
+/** @deprecated Use {@link serveChat} or {@link serveTts}. */
+export type Handler = TtsHandler;
+
+/** Gemini-backed TTS (and legacy callers that still pass a Gemini client). */
+export async function serve(request: Request, handler: TtsHandler, options: ServeOptions = {}): Promise<Response> {
+  return serveTts(request, handler, options);
+}
+
+export async function serveChat(request: Request, handler: ChatHandler, options: ServeOptions = {}): Promise<Response> {
+  const env = options.env ?? process.env;
+  const limiter = options.limiter ?? defaultLimiter;
+
+  const parsed = await readJsonBody(request, limiter, env);
+  if ('error' in parsed && parsed.error) return parsed.error;
+
+  if (!isChatConfigured(env)) {
+    return json(
+      fail(
+        503,
+        'NOT_CONFIGURED',
+        'Chat is not configured. Set GEMINI_API_KEY, or use CHAT_BACKEND=harness with AI Gateway, provider keys, or a host subscription.',
+      ),
+    );
+  }
+
+  const backend = resolveChatBackend(env);
+  let client: ChatClient;
+  let models: ChatModels;
+
+  if (backend === 'harness') {
+    client = createHarnessChatClient();
+    models = {
+      ...harnessChatModels(env),
+      now: undefined,
+    };
+  } else {
+    const apiKey = env.GEMINI_API_KEY!;
+    const gemini = (options.createClient ?? defaultCreateClient)(apiKey);
+    client = createGeminiChatClient(gemini);
+    models = {
+      chat: env.GEMINI_CHAT_MODEL || DEFAULT_MODELS.chat,
+      chatFallbacks: modelList(env.GEMINI_CHAT_FALLBACK_MODELS, DEFAULT_MODELS.chatFallbacks),
+    };
+  }
+
+  return json(await handler(parsed.body, client, models));
+}
+
+export async function serveTts(request: Request, handler: TtsHandler, options: ServeOptions = {}): Promise<Response> {
+  const env = options.env ?? process.env;
+  const limiter = options.limiter ?? defaultLimiter;
+
+  const parsed = await readJsonBody(request, limiter, env);
+  if ('error' in parsed && parsed.error) return parsed.error;
+
+  const apiKey = env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return json(fail(503, 'NOT_CONFIGURED', 'The server has no Gemini API key configured.'));
   }
 
   const models: Models = {
@@ -134,5 +198,5 @@ export async function serve(request: Request, handler: Handler, options: ServeOp
     ttsFallbacks: modelList(env.GEMINI_TTS_FALLBACK_MODELS, DEFAULT_MODELS.ttsFallbacks),
   };
   const client = (options.createClient ?? defaultCreateClient)(apiKey);
-  return json(await handler(body, client, models));
+  return json(await handler(parsed.body, client, models));
 }

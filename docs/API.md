@@ -36,7 +36,8 @@ Checks run in this order; the first failure is returned.
 | Step | Failure | Status | `code` |
 | --- | --- | --- | --- |
 | Method is `POST` | other method (response also sets `Allow: POST`) | 405 | `METHOD_NOT_ALLOWED` |
-| `GEMINI_API_KEY` is set | key missing or empty | 503 | `NOT_CONFIGURED` |
+| Chat backend configured | neither Gemini (when `CHAT_BACKEND=gemini`) nor harness auth | 503 | `NOT_CONFIGURED` |
+| `GEMINI_API_KEY` is set (TTS only) | key missing or empty on `/api/tts` | 503 | `NOT_CONFIGURED` |
 | Rate limiter allows the client | over 20 requests in the window (also sets `Retry-After: 60`) | 429 | `RATE_LIMITED` |
 | `Content-Length` header <= 65536 | declared size too large | 413 | `PAYLOAD_TOO_LARGE` |
 | Body text length <= 65536 | body too large | 413 | `PAYLOAD_TOO_LARGE` |
@@ -212,7 +213,10 @@ copies these five keys into `process.env` unless they are already set.
 
 | Variable | Default | Parsing |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | none | Required; unset or empty gives `503 NOT_CONFIGURED` |
+| `GEMINI_API_KEY` | none | Required for `/api/tts`; also used for `/api/chat` when `CHAT_BACKEND=gemini` (default when only this key is set) |
+| `CHAT_BACKEND` | `auto` | `gemini`, `harness`, or `auto` — harness uses AI SDK v7 Pi (`auth: auto`: gateway OIDC/key, provider keys, or native host subscription) |
+| `CHAT_HARNESS_MODEL` | `anthropic/claude-sonnet-4.6` | Gateway-style model id for harness chat |
+| `CHAT_HARNESS_FALLBACK_MODELS` | `openai/gpt-5.4,google/gemini-3.8-flash` | Comma-separated harness chat fallbacks (unset = defaults; empty = none) |
 | `GEMINI_CHAT_MODEL` | `gemini-3.8-flash` | Used as-is; empty string means default |
 | `GEMINI_TTS_MODEL` | `gemini-3.8-flash-tts` | Used as-is; empty string means default |
 | `GEMINI_CHAT_FALLBACK_MODELS` | `gemini-3.7-flash,gemini-3.5-flash,gemini-flash-latest` | Comma-separated, entries trimmed, blanks removed. **Unset** means the defaults; **set but empty** means no fallbacks |

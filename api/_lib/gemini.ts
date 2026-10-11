@@ -16,6 +16,7 @@ import {
   DEFAULT_CUSTOM_VOICE,
   type VoiceProfileId,
 } from '../../src/constants.js';
+import type { ChatClient } from './chatClient.js';
 
 export const LIMITS = {
   /** Characters in one user message. */
@@ -240,7 +241,9 @@ function mapUpstreamError(error: unknown): ApiResult {
 
 // ---------------------------------------------------------------- chat
 
-export async function handleChat(raw: unknown, client: GeminiClient, models: Models): Promise<ApiResult> {
+export type ChatModels = Pick<Models, 'chat' | 'chatFallbacks' | 'now'>;
+
+export async function handleChat(raw: unknown, client: ChatClient, models: ChatModels): Promise<ApiResult> {
   if (!isObject(raw)) return badRequest('Request body must be a JSON object.');
 
   const { characterId, customCharacter, history = [], message } = raw;
@@ -288,23 +291,17 @@ export async function handleChat(raw: unknown, client: GeminiClient, models: Mod
     .map((t) => ({ role: t.role, parts: [{ text: t.text }] }));
 
   try {
-    const response = await withFallbacks(
+    const text = await withFallbacks(
       [models.chat, ...(models.chatFallbacks ?? [])],
       models.now ?? Date.now,
       (model, timeout) =>
-        client.models.generateContent({
-          model,
+        client.generate({
+          systemInstruction,
           contents,
-          config: {
-            systemInstruction,
-            // Short persona replies gain nothing from long hidden reasoning,
-            // and it roughly doubles latency and cost.
-            thinkingConfig: { thinkingLevel: 'LOW' },
-            httpOptions: { timeout },
-          },
+          model,
+          timeoutMs: timeout,
         }),
     );
-    const text = typeof response?.text === 'string' ? response.text.trim() : '';
     if (!text) return fail(502, 'EMPTY_RESPONSE', 'The model returned no text.');
     return { status: 200, body: { text } };
   } catch (error) {
