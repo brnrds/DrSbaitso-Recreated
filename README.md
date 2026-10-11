@@ -87,8 +87,10 @@ and a strict Content-Security-Policy keeps it that way. Architecture:
 ## Deployment
 
 Deploy to Vercel with the included `vercel.json`, and set `GEMINI_API_KEY` under
-**Project → Settings → Environment Variables** for Production and Preview. Optional
-model overrides are listed in [`.env.example`](.env.example). See
+**Project → Settings → Environment Variables** for Production and Preview (required
+for TTS). Chat can alternatively use AI SDK v7 harness auth (`CHAT_BACKEND=harness`
+and gateway or provider credentials); see [`.env.example`](.env.example). Optional
+model overrides are listed there too. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for other hosts and rate limiting.
 
 ## Documentation
