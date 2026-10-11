@@ -75,7 +75,7 @@ npm run dev                  # http://localhost:3000
 Browser (React SPA)                         Vercel Functions                  Google Gemini
  classic screen | Enhanced mode
  local engines (sbaitso, eliza, ...)
-   open conversation  ── POST /api/chat ──▶ validate, rate-limit, persona ──▶ gemini-3.8-flash
+   open conversation  ── POST /api/chat ──▶ validate, rate-limit, persona ──▶ Gemini or AI SDK harness (Pi)
    speech             ── POST /api/tts ───▶ voice + style, PCM16 24 kHz  ──▶ gemini-3.8-flash-tts
  Web Audio voice chains                     (model fallback on 503/429/timeout)
 ```
