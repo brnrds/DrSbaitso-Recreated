@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `/api/chat` can run through AI SDK v7 harnesses (Pi adapter, `auth: 'auto'`) so
+  conversations can use AI Gateway, provider API keys, or a host-native subscription;
+  set `CHAT_BACKEND=harness` (or rely on `auto` when gateway/provider credentials
+  exist). Gemini TTS and voice personas are unchanged.
+- Dr. Sbaitso's model prompt now answers with School of Life–style emotional
+  insight while keeping the retro ALL CAPS doctor voice.
+
 - `scripts/research/voice/`: the seven Python scripts that measured the original voice for
   `ref-docs/02` (F0, bands, pauses, engine settings, DSP rate, pronunciation equivalence),
   with a README covering setup. They need a SmoothTalker emulation clone and your own

@@ -75,7 +75,7 @@ npm run dev                  # http://localhost:3000
 Browser (React SPA)                         Vercel Functions                  Google Gemini
  classic screen | Enhanced mode
  local engines (sbaitso, eliza, ...)
-   open conversation  ── POST /api/chat ──▶ validate, rate-limit, persona ──▶ gemini-3.8-flash
+   open conversation  ── POST /api/chat ──▶ validate, rate-limit, persona ──▶ Gemini or AI SDK harness (Pi)
    speech             ── POST /api/tts ───▶ voice + style, PCM16 24 kHz  ──▶ gemini-3.8-flash-tts
  Web Audio voice chains                     (model fallback on 503/429/timeout)
 ```
@@ -87,9 +87,17 @@ and a strict Content-Security-Policy keeps it that way. Architecture:
 ## Deployment
 
 Deploy to Vercel with the included `vercel.json`, and set `GEMINI_API_KEY` under
-**Project → Settings → Environment Variables** for Production and Preview. Optional
-model overrides are listed in [`.env.example`](.env.example). See
+**Project → Settings → Environment Variables** for Production and Preview (required
+for TTS). Chat can alternatively use AI SDK v7 harness auth (`CHAT_BACKEND=harness`
+and gateway or provider credentials); see [`.env.example`](.env.example). Optional
+model overrides are listed there too. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for other hosts and rate limiting.
+
+**Untested (Unreleased):** The harness chat backend (`CHAT_BACKEND=harness`, Pi /
+AI SDK v7) and the updated Dr. Sbaitso prompt (School of Life–style replies) have
+not been manually verified end-to-end against live gateway, subscription, or harness
+credentials. CI covers unit tests with mocks only; treat these paths as experimental
+until you smoke-test them locally or on a preview deploy.
 
 ## Documentation
 
