@@ -93,6 +93,12 @@ and gateway or provider credentials); see [`.env.example`](.env.example). Option
 model overrides are listed there too. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for other hosts and rate limiting.
 
+**Untested (Unreleased):** The harness chat backend (`CHAT_BACKEND=harness`, Pi /
+AI SDK v7) and the updated Dr. Sbaitso prompt (School of Life–style replies) have
+not been manually verified end-to-end against live gateway, subscription, or harness
+credentials. CI covers unit tests with mocks only; treat these paths as experimental
+until you smoke-test them locally or on a preview deploy.
+
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md): release history; [Releases](https://github.com/doublegate/DrSbaitso-Recreated/releases) for tagged versions and notes
